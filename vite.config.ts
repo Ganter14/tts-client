@@ -4,6 +4,7 @@ import vue from '@vitejs/plugin-vue'
 import electron from 'vite-plugin-electron/simple'
 import pkg from './package.json'
 import { fileURLToPath } from 'node:url'
+import vuetify, { transformAssetUrls } from 'vite-plugin-vuetify'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ command }) => {
@@ -21,7 +22,10 @@ export default defineConfig(({ command }) => {
       }
     },
     plugins: [
-      vue(),
+      vue({
+        template: { transformAssetUrls }
+      }),
+      vuetify(),
       electron({
         main: {
           // Shortcut of `build.lib.entry`

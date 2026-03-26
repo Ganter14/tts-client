@@ -13,9 +13,10 @@
     "skipLibCheck": true,
     "noEmit": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@api/*": ["./generated/api/*"]
     }
   },
-  "include": ["src"],
+  "include": ["src", "generated/api"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

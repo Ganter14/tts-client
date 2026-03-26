@@ -43,5 +43,6 @@
     "@vueuse/core": "^14.0.0",
     "vue-router": "4",
     "vuetify": "^4.0.3",
+    "wawa-lipsync": "^0.0.2"
   }
 }

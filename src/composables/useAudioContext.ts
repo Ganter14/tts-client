@@ -1,89 +1,60 @@
-import { computed, ref } from 'vue'
+import { createSharedComposable } from '@vueuse/core'
+import { computed, Ref, ref, shallowRef } from 'vue'
+import { Lipsync, VISEMES } from 'wawa-lipsync'
 
-export const useAudioContext = () => {
-  const audioContext = ref<AudioContext>(new AudioContext({ latencyHint: 'interactive', sampleRate: 24000 }))
-  const gainNode = audioContext.value.createGain()
-  gainNode.connect(audioContext.value.destination)
-  gainNode.gain.value = 0.5
+/** Base64 (опционально с префиксом data URL) → сырой ArrayBuffer для decodeAudioData */
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const payload = base64.includes(',') ? base64.slice(base64.indexOf(',') + 1) : base64
+  const binary = atob(payload)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes.buffer
+}
+
+export const useAudioContext = createSharedComposable(() => {
+  const audioContext = ref<AudioContext>(new AudioContext({ latencyHint: 'playback', sampleRate: 24000 }))
   const audioContextStatus = computed<AudioContextState>(() => audioContext.value.state)
+  const gainNode = audioContext.value.createGain()
+  gainNode.gain.value = 0.5
 
-  const audioBuffers = ref<{ index: number; buffer: AudioBuffer }[]>([])
+  gainNode.connect(audioContext.value.destination)
+  const mediaDestination = ref(audioContext.value.createMediaStreamDestination())
+  gainNode.connect(mediaDestination.value)
+
   audioContext.value.resume()
-  const isPlaying = ref(false)
+  let nextStartTime: number | null = null
 
-  const lookAhead = 0.03 // 30ms: небольшой запас на подготовку
-  const scheduleHorizon = 0.25 // планируем вперёд на ~250ms
-  const nextStartTime = ref<number | null>(null)
-  let schedulerTimer: number | null = null
-
-  const startScheduler = () => {
-    if (schedulerTimer != null) return
-    // Тикер подбрасывает новые буферы в таймлайн
-    schedulerTimer = window.setInterval(() => {
-      schedulePending()
-    }, Math.max(10, Math.floor((lookAhead * 1000) / 2)))
-  }
-
-  const stopScheduler = () => {
-    if (schedulerTimer != null) {
-      clearInterval(schedulerTimer)
-      schedulerTimer = null
-    }
-  }
-
-  const addChunk = async (blob: Blob, chunkIndex: number) => {
+  const addChunk = async (chunkData: string | ArrayBuffer, chunkIndex: number, sampleRate: number) => {
     try {
-      const wavData = await blob.arrayBuffer()
-      const audioBuffer = await audioContext.value.decodeAudioData(wavData)
-      audioBuffers.value.push({ index: chunkIndex, buffer: audioBuffer })
-      audioBuffers.value.sort((a, b) => a.index - b.index)
+      const data = typeof chunkData === 'string' ? base64ToArrayBuffer(chunkData) : chunkData
+      const samples = new Float32Array(data.slice(0))
+      const audioBuffer = audioContext.value.createBuffer(1, samples.length, sampleRate)
+      const channel = audioBuffer.getChannelData(0)
+      channel.set(samples)
+      const source = audioContext.value.createBufferSource()
+      source.connect(gainNode)
+      source.buffer = audioBuffer
 
-      if (!isPlaying.value) {
-        startPlayback()
+      // Синхронизация времени: планируем запуск на основе времени окончания предыдущего чанка
+      const now = audioContext.value.currentTime
+
+      // Если это первый чанк или произошел пропуск, устанавливаем время с небольшим буфером
+      if (nextStartTime === null || nextStartTime <= now) {
+        nextStartTime = now
       }
-      schedulePending()
+
+      source.start(nextStartTime)
+      // Обновляем время для следующего чанка
+      nextStartTime += audioBuffer.duration
     } catch (error) {
       console.error('Error decoding audio chunk:', error)
     }
   }
 
-  const startPlayback = () => {
-    if (isPlaying.value) return
-    isPlaying.value = true
-
-    // Первое запланированное время старта — немного в будущем
-    const now = audioContext.value.currentTime
-    nextStartTime.value = now + lookAhead
-
-    startScheduler()
-    schedulePending()
-  }
-
-  const schedulePending = () => {
-    if (!isPlaying.value) return
-    if (audioBuffers.value.length === 0) return
-    if (nextStartTime.value == null) {
-      nextStartTime.value = audioContext.value.currentTime + lookAhead
-    }
-
-    const now = audioContext.value.currentTime
-    // Планируем вперёд до горизонта
-    while (audioBuffers.value.length > 0 && nextStartTime.value < now + scheduleHorizon) {
-      const item = audioBuffers.value.shift()!
-      const source = audioContext.value.createBufferSource()
-      source.buffer = item.buffer
-      source.connect(gainNode)
-
-      // Стартуем без смещения; ставим начало не в прошлое
-      const when = Math.max(nextStartTime.value, now + lookAhead)
-      source.start(when)
-
-      // Следующее окно старта = конец только что запланированного
-      nextStartTime.value = when + item.buffer.duration - 0.005
-    }
-  }
-
   return {
-    addChunk
+    addChunk,
+    mediaDestination
   }
-}
+})

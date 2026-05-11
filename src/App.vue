@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { useTTSControl } from '@/composables';
+import { useTTSController } from '@/composables';
 
 const drawer = ref(false)
-const { ttsStatus, lipsyncStatus } = useTTSControl()
+const { ttsStatus, vtsStatus } = useTTSController()
 </script>
 
 <template>
@@ -11,7 +11,7 @@ const { ttsStatus, lipsyncStatus } = useTTSControl()
     <v-layout>
       <v-navigation-drawer v-model="drawer">
         <v-list-item link title="Главная" :to="{ name: 'main' }"></v-list-item>
-        <v-list-item link title="История"></v-list-item>
+        <v-list-item link title="Плейлист" :to="{ name: 'playlist' }"></v-list-item>
         <v-list-item link title="Настройки" :to="{ name: 'settings' }"></v-list-item>
       </v-navigation-drawer>
       <v-app-bar>
@@ -26,10 +26,10 @@ const { ttsStatus, lipsyncStatus } = useTTSControl()
           </v-tooltip>
         </div>
         <div class="d-flex align-center mr-2">
-          <span class="text-body-small mr-1">Lipsync: </span>
+          <span class="text-body-small mr-1">VTS: </span>
           <v-tooltip text="Соединение с VTube Studio" location="bottom">
             <template #activator="{ props }">
-              <v-sheet :color="lipsyncStatus ? 'green' : 'red'" rounded="circle" width="10" height="10" v-bind="props"/>
+              <v-sheet :color="vtsStatus === 'OPEN' ? 'green' : 'red'" rounded="circle" width="10" height="10" v-bind="props"/>
             </template>
           </v-tooltip>
         </div>

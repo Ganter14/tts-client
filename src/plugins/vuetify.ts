@@ -1,5 +1,18 @@
 import '@mdi/font/css/materialdesignicons.css'
 import 'vuetify/styles'
-import { createVuetify } from 'vuetify'
+import { createVuetify, VuetifyOptions } from 'vuetify'
+import { ru } from 'vuetify/locale'
 
-export default createVuetify()
+const vuetifyOptions: VuetifyOptions = {
+  locale: {
+    locale: 'ru',
+    messages: { ru }
+  },
+  defaults: {
+    VBtn: {
+      variant: 'flat'
+    }
+  }
+}
+
+export default createVuetify(vuetifyOptions)

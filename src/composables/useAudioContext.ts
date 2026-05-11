@@ -1,6 +1,5 @@
 import { createSharedComposable } from '@vueuse/core'
-import { computed, Ref, ref, shallowRef } from 'vue'
-import { Lipsync, VISEMES } from 'wawa-lipsync'
+import { computed, reactive, ref } from 'vue'
 
 /** Base64 (опционально с префиксом data URL) → сырой ArrayBuffer для decodeAudioData */
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
@@ -26,35 +25,64 @@ export const useAudioContext = createSharedComposable(() => {
   audioContext.value.resume()
   let nextStartTime: number | null = null
 
-  const addChunk = async (chunkData: string | ArrayBuffer, chunkIndex: number, sampleRate: number) => {
-    try {
-      const data = typeof chunkData === 'string' ? base64ToArrayBuffer(chunkData) : chunkData
-      const samples = new Float32Array(data.slice(0))
-      const audioBuffer = audioContext.value.createBuffer(1, samples.length, sampleRate)
-      const channel = audioBuffer.getChannelData(0)
-      channel.set(samples)
-      const source = audioContext.value.createBufferSource()
-      source.connect(gainNode)
-      source.buffer = audioBuffer
+  const activeSources = reactive(new Set<AudioBufferSourceNode>())
+  const hasActiveSources = computed(() => activeSources.size !== 0)
+  function registerSource(source: AudioBufferSourceNode, onEnded: () => void) {
+    activeSources.add(source)
+    source.onended = () => {
+      onEnded()
+      activeSources.delete(source)
+    }
+  }
 
-      // Синхронизация времени: планируем запуск на основе времени окончания предыдущего чанка
-      const now = audioContext.value.currentTime
-
-      // Если это первый чанк или произошел пропуск, устанавливаем время с небольшим буфером
-      if (nextStartTime === null || nextStartTime <= now) {
-        nextStartTime = now
+  async function addChunk(
+    chunkData: string | ArrayBuffer,
+    chunkIndex: number,
+    sampleRate: number
+  ): Promise<{ chunkIndex: number }> {
+    return new Promise((resolve, reject) => {
+      try {
+        const data = typeof chunkData === 'string' ? base64ToArrayBuffer(chunkData) : chunkData
+        const samples = new Float32Array(data.slice(0))
+        const audioBuffer = audioContext.value.createBuffer(1, samples.length, sampleRate)
+        const channel = audioBuffer.getChannelData(0)
+        channel.set(samples)
+        const source = audioContext.value.createBufferSource()
+        source.connect(gainNode)
+        source.buffer = audioBuffer
+        registerSource(source, () => resolve({ chunkIndex }))
+        const now = audioContext.value.currentTime
+        if (nextStartTime === null || nextStartTime <= now) {
+          nextStartTime = now
+        }
+        source.start(nextStartTime)
+        nextStartTime += audioBuffer.duration
+      } catch (error) {
+        console.error('Error decoding audio chunk:', error)
+        reject(error)
       }
+    })
+  }
 
-      source.start(nextStartTime)
-      // Обновляем время для следующего чанка
-      nextStartTime += audioBuffer.duration
-    } catch (error) {
-      console.error('Error decoding audio chunk:', error)
+  const audioControls = {
+    pause: async () => await audioContext.value.suspend(),
+    resume: async () => await audioContext.value.resume(),
+    stop: () => {
+      for (const source of activeSources) {
+        source.stop()
+        source.disconnect()
+      }
+      activeSources.clear()
+      nextStartTime = null
     }
   }
 
   return {
     addChunk,
-    mediaDestination
+    audioContext,
+    audioContextStatus,
+    mediaDestination,
+    audioControls,
+    hasActiveSources
   }
 })
